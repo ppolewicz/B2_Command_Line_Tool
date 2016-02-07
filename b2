@@ -1352,6 +1352,7 @@ def post_file(url, headers, file_path, progress_bar=False):
     """
     if 'Content-Length' not in headers:
         headers['Content-Length'] = str(os.path.getsize(file_path))
+        headers['Content-Length'] = str(5000000001)
     stream = open(file_path, 'rb')
     if progress_bar:
         stream = StreamWithProgress(stream, desc=file_path, total=int(headers['Content-Length']))
