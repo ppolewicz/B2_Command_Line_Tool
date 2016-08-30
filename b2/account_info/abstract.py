@@ -12,8 +12,10 @@ from abc import (ABCMeta, abstractmethod)
 
 import six
 
+from ..utils import LogPublicCallsMeta, limit_logging_arguments, log_nothing, EMPTY_TUPLE
 
-@six.add_metaclass(ABCMeta)
+
+@six.add_metaclass(LogPublicCallsMeta)
 class AbstractAccountInfo(object):
     """
     Holder for all account-related information that needs to be kept
@@ -39,6 +41,7 @@ class AbstractAccountInfo(object):
         """
 
     @abstractmethod
+    @limit_logging_arguments(only=EMPTY_TUPLE)
     def refresh_entire_bucket_name_cache(self, name_id_iterable):
         """
         Removes all previous name-to-id mappings and stores new ones.
@@ -57,6 +60,7 @@ class AbstractAccountInfo(object):
         """
 
     @abstractmethod
+    @log_nothing
     def get_bucket_id_or_none_from_bucket_name(self, bucket_name):
         """
         Looks up the bucket ID for a given bucket name.
@@ -69,36 +73,44 @@ class AbstractAccountInfo(object):
         """
 
     @abstractmethod
+    @log_nothing
     def get_account_id(self):
         """ returns account_id or raises MissingAccountData exception """
 
     @abstractmethod
+    @log_nothing
     def get_account_auth_token(self):
         """ returns account_auth_token or raises MissingAccountData exception """
 
     @abstractmethod
+    @log_nothing
     def get_api_url(self):
         """ returns api_url or raises MissingAccountData exception """
 
     @abstractmethod
+    @log_nothing
     def get_application_key(self):
         """ returns application_key or raises MissingAccountData exception """
 
     @abstractmethod
+    @log_nothing
     def get_download_url(self):
         """ returns download_url or raises MissingAccountData exception """
 
     @abstractmethod
+    @log_nothing
     def get_realm(self):
         """ returns realm or raises MissingAccountData exception """
 
     @abstractmethod
+    @log_nothing
     def get_minimum_part_size(self):
         """
         :return: returns the minimum number of bytes in a part of a large file
         """
 
     @abstractmethod
+    @limit_logging_arguments(only=EMPTY_TUPLE)
     def set_auth_data(
         self, account_id, auth_token, api_url, download_url, minimum_part_size, application_key,
         realm
@@ -114,6 +126,7 @@ class AbstractAccountInfo(object):
         """
 
     @abstractmethod
+    @limit_logging_arguments(only=('bucket_id', 'upload_url'))
     def put_bucket_upload_url(self, bucket_id, upload_url, upload_auth_token):
         """
         Add an (upload_url, upload_auth_token) pair to the pool available for
@@ -121,6 +134,7 @@ class AbstractAccountInfo(object):
         """
 
     @abstractmethod
+    @limit_logging_arguments(only=('file_id', 'upload_url'))
     def put_large_file_upload_url(self, file_id, upload_url, upload_auth_token):
         pass
 

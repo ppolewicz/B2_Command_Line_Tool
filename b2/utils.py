@@ -29,6 +29,7 @@ except ImportError:
 # Global variable that says whether the app is shutting down
 _shutting_down = False
 
+EMPTY_TUPLE = tuple()
 
 def set_shutting_down():
     global _shutting_down
@@ -278,34 +279,127 @@ def repr_dict_deterministically(dict_):
     return '{%s}' % (fields,)
 
 
+def get_class_that_defined_method(meth):
+    if inspect.ismethod(meth):
+        for cls in inspect.getmro(meth.__self__.__class__):
+            if cls.__dict__.get(meth.__name__) is meth:
+                return cls
+        meth = meth.__func__  # fallback to __qualname__ parsing
+    if inspect.isfunction(meth):
+        cls = getattr(inspect.getmodule(meth),
+                      meth.__qualname__.split('.<locals>', 1)[0].rsplit('.', 1)[0])
+        if isinstance(cls, type):
+            return cls
+    return None
+
+
 class log_call(object):
     """
     A decorator which causes the function execution to be logged using a passed logger
     """
 
-    def __init__(self, logger, only=None):
+    def __init__(self, logger, only=None, skip=None):
         """
-            only - if not None, contains a whitelist (list of names) of arguments that can be logged
+            only - if not None, contains a whitelist (tuple of names) of arguments
+                   that are safe to be logged. All others can not be logged.
+            skip - if not None, contains a whitelist (tuple of names) of arguments
+                   that are not safe to be logged.
         """
         self.logger = logger
         self.only = only
+        self.skip = skip
+        assert sum((skip is not None, only is not None)) <= 1
 
-    def __call__(self, f):
+    def __call__(self, function):
         def wrapper(*args, **kwargs):
             if self.logger.isEnabledFor(logging.INFO):
                 frame = inspect.getouterframes(inspect.currentframe())[1][0]
                 frame_args, _, _, frame_values = inspect.getargvalues(frame)
                 suffix = ''
+                pre_filter_len = len(frame_args)
                 if self.only is not None:
-                    pre_filter_len = len(frame_args)
                     frame_args = [arg for arg in frame_args if arg in self.only]
-                    post_filter_len = len(frame_args)
-                    if post_filter_len != pre_filter_len:
-                        suffix = ' (%d arguments were hidden)' % (pre_filter_len - post_filter_len)
+                elif self.skip is not None:
+                    frame_args = [arg for arg in frame_args if arg not in self.only]
+                post_filter_len = len(frame_args)
+                if post_filter_len != pre_filter_len:
+                    suffix = ' (%d arguments were hidden)' % (pre_filter_len - post_filter_len)
                 arguments = ', '.join(
-                    '%s: %s' % (repr(k), repr(frame_values[k])) for k in sorted(frame_args)
+                    '%s=%s' % (k, repr(frame_values[k])) for k in frame_args
                 )
-                self.logger.info('calling %s(%s)%s' % (f.__name__, arguments, suffix))
-            return f(*args, **kwargs)
+                function_name = function.__name__
+                klass = get_class_that_defined_method(function)
+                if klass is not None:
+                    function_name = '%s.%s' % (klass.__name__, function_name)
+                self.logger.info('calling %s(%s)%s' % (function_name, arguments, suffix))
+            return function(*args, **kwargs)
 
         return wrapper
+
+
+class limit_logging_arguments(object):
+    """
+    A decorator which causes the function execution logging to omit some fields
+    """
+    def __init__(self, only=None, skip=None):
+        """
+            only - if not None, contains a whitelist (tuple of names) of arguments
+                   that are safe to be logged. All others can not be logged.
+            skip - if not None, contains a whitelist (tuple of names) of arguments
+                   that are not safe to be logged.
+        """
+        self.only = only
+        self.skip = skip
+    def __call__(self, function):
+        function._log_only = self.only
+        function._log_skip = self.skip
+        return function
+
+
+def log_nothing(function):
+    """
+    A decorator which suppresses the function execution logging
+    """
+    function._log_disable = True
+    return function
+
+
+class LogPublicCallsMeta(type):
+    """
+    A metaclass which logs calls to public methods of *inheriting* classes.
+    Perhaps a class decorator could do the same thing, but class decorators
+    are not inherited and this way we are sure that all ancestors will do the
+    right thing.
+    """
+    def __new__(mcs, name, bases, attrs, **kwargs):
+
+        # *magic*: an educated guess is made on how the module that the
+        # processed class is created in would get its logger.
+        # It is assumed that the popular convention recommended by the
+        # developers of standard library (`logger = logging.getLogger(__name__)`)
+        # is used.
+        target_logger = logging.getLogger(attrs['__module__'])
+
+        for attribute_name in attrs:
+            attribute_value = attrs[attribute_name]
+
+            if not callable(attribute_value):
+                continue  # it is a field
+            if attribute_name.startswith('_'):
+                continue  # it is a _protected or a __private method or __this_kind__
+            if hasattr(attribute_value, '_log_disable'):
+                continue
+
+            # attrs['__module__'] + '.' + attribute_name is a public callable worth logging
+
+            # create a wrapper (decorator object)
+            wrapper = log_call(
+                target_logger,
+                only=getattr(attribute_value, '_log_only', None),
+                skip=getattr(attribute_value, '_log_skip', None),
+            )
+            # wrap the callable in it
+            wrapped_value = wrapper(attribute_value)
+            # and substitute the log-wrapped method for the original
+            attrs[attribute_name] = wrapped_value
+        return super().__new__(mcs, name, bases, attrs)

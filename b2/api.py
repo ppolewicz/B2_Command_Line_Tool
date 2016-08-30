@@ -8,6 +8,8 @@
 #
 ######################################################################
 
+import six
+
 from .account_info.sqlite_account_info import SqliteAccountInfo
 from .account_info.exception import MissingAccountData
 from .b2http import B2Http
@@ -20,6 +22,8 @@ from .part import PartFactory
 from .progress import DoNothingProgressListener
 from .raw_api import B2RawApi
 from .session import B2Session
+from .utils import LogPublicCallsMeta, limit_logging_arguments, log_nothing
+
 
 try:
     import concurrent.futures as futures
@@ -35,6 +39,7 @@ def url_for_api(info, api_name):
     return base + '/b2api/v1/' + api_name
 
 
+@six.add_metaclass(LogPublicCallsMeta)
 class B2Api(object):
     """
     Provides file-level access to B2 services.
@@ -87,6 +92,7 @@ class B2Api(object):
             raise Exception('thread pool already created')
         self.max_workers = max_workers
 
+    @log_nothing
     def get_thread_pool(self):
         """
         Returns the thread pool executor to use for uploads and downloads.
@@ -106,6 +112,7 @@ class B2Api(object):
             return False
         return True
 
+    @limit_logging_arguments(only=('realm',))
     def authorize_account(self, realm, account_id, application_key):
         try:
             old_account_id = self.account_info.get_account_id()
@@ -128,6 +135,7 @@ class B2Api(object):
             realm,
         )
 
+    @log_nothing
     def get_account_id(self):
         return self.account_info.get_account_id()
 
@@ -154,9 +162,11 @@ class B2Api(object):
         )
         progress_listener.close()
 
+    @log_nothing
     def get_bucket_by_id(self, bucket_id):
         return Bucket(self, bucket_id)
 
+    @log_nothing
     def get_bucket_by_name(self, bucket_name):
         """
         Returns the bucket_id for the given bucket_name.
