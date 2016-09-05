@@ -314,21 +314,27 @@ class log_call(object):
     def __call__(self, function):
         @wraps(function)
         def wrapper(*args, **kwargs):
-            print('log_call', function)
-            #print('frame info 0', inspect.getframeinfo(inspect.currentframe()))
-            #print('frame info 0 detail', inspect.getargvalues(inspect.currentframe()))
+            print('log_call', function, args, kwargs, 'only', self.only, 'skip', self.skip)
+            print('frame info 0', inspect.getframeinfo(inspect.currentframe()))
+            print('frame info 0 detail', inspect.getargvalues(inspect.currentframe()))
+            #def wrapper(*args, **kwargs):
+            from collections import OrderedDict
+            import itertools
+            args_name = OrderedDict.fromkeys(itertools.chain(inspect.getargspec(function)[0], kwargs.keys()))
+            args_dict = OrderedDict(list(zip(args_name, args)) + list(six.iteritems(kwargs)))
+            print('args_dict', args_dict)
             if self.logger.isEnabledFor(logging.INFO):
                 #frame = inspect.getouterframes(inspect.currentframe())[0][0]
-                #frame = inspect.currentframe()
+                ##frame = inspect.currentframe()
                 #print('frame info 01', inspect.getframeinfo(frame))
                 #print('frame info 01 detail', inspect.getargvalues(frame))
                 frame = inspect.getouterframes(inspect.currentframe())[1][0]
-                print('frame info 1', inspect.getframeinfo(frame))
-                print('frame info 1 detail', inspect.getargvalues(frame))
+                #print('frame info 1', inspect.getframeinfo(frame))
+                #print('frame info 1 detail', inspect.getargvalues(frame))
                 frame_args, _, _, frame_values = inspect.getargvalues(frame)
                 suffix = ''
                 pre_filter_len = len(frame_args)
-                print('3 frame_args before hiding', frame_args)
+                #print('3 frame_args before hiding', frame_args)
                 if self.only is not None:
                     frame_args = [arg for arg in frame_args if arg in self.only]
                 elif self.skip is not None:
@@ -367,6 +373,7 @@ class limit_logging_arguments(object):
     def __call__(self, function):
         function._log_only = self.only
         function._log_skip = self.skip
+        print('limit_logging_arguments for', function, ', only:', self.only, 'skip:', self.skip)
         return function
 
 
@@ -393,23 +400,33 @@ class LogPublicCallsMeta(type):
         # developers of standard library (`logger = logging.getLogger(__name__)`)
         # is used.
         target_logger = logging.getLogger(attrs['__module__'])
+        print('LogPublicCallsMeta called for', mcs, name, bases, attrs, kwargs)
 
         for attribute_name in attrs:
             attribute_value = attrs[attribute_name]
 
             if not callable(attribute_value):
+                print('LogPublicCallsMeta:', attribute_name, 'is a field')
                 continue  # it is a field
             if attribute_name.startswith('_'):
+                print('LogPublicCallsMeta:', attribute_name, 'is a _protected or a __private method or __this_kind__')
                 continue  # it is a _protected or a __private method or __this_kind__
             if hasattr(attribute_value, '_log_disable'):
+                print('LogPublicCallsMeta:', '_log_disable')
                 continue
 
             # attrs['__module__'] + '.' + attribute_name is a public callable worth logging
-            if not (attrs['__module__'] + '.' + attribute_name).startswith('b2.account_info') or attribute_name != 'put_bucket_upload_url': #'set_auth_data':
-                continue # XXX XXX XXX
+
+            # XXX XXX XXX
+            #if not (attrs['__module__'] + '.' + attribute_name).startswith('b2.account_info') or attribute_name != 'put_bucket_upload_url': #'set_auth_data':
+            #    continue
+            # XXX XXX XXX
+
             # collect the `only` and `skip` sets from mro
             only = getattr(attribute_value, '_log_only', None)
             skip = getattr(attribute_value, '_log_skip', None)
+            print('%s._log_only' % attrs['__module__'] + '.' + attribute_name, only)
+            print('%s._log_skip' % attrs['__module__'] + '.' + attribute_name, skip)
             disable = False
             print(1, attrs['__module__'] + '.' + attribute_name, 'only =', only, 'skip =', skip)
             for base in bases:
@@ -417,7 +434,7 @@ class LogPublicCallsMeta(type):
                 base_attribute_value = getattr(base, attribute_name, None)
                 if base_attribute_value is None:
                     continue  # the base class did not define this
-                print('the base class did define', attribute_name)
+                print('the base class', base, 'did define', attribute_name, '!')
                 if hasattr(base_attribute_value, '_log_disable'):
                     # ex. inheriting from AbstractAccount, where getters are marked
                     disable = True
@@ -440,6 +457,7 @@ class LogPublicCallsMeta(type):
 
             print(2, attrs['__module__'] + '.' + attribute_name, 'only =', only, 'skip =', skip)
             if disable:
+                print('the base class does not wish to log it at all...')
                 continue  # the base class does not wish to log it at all
 
             # create a wrapper (decorator object)
@@ -453,3 +471,35 @@ class LogPublicCallsMeta(type):
             # and substitute the log-wrapped method for the original
             attrs[attribute_name] = wrapped_value
         return super().__new__(mcs, name, bases, attrs)
+
+if __name__ == '__main__':
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.DEBUG)
+
+    def inner():
+        @log_call(logger)
+        def foo(a, b, c=None):
+            return True
+        foo(1, 2, 3)
+        foo(a=1, b=2)
+        print('+'*70)
+        @six.add_metaclass(LogPublicCallsMeta)
+        class Ala(object):
+            #@log_call(logger)
+            @limit_logging_arguments(only=EMPTY_TUPLE)
+            def bar(self, a, b, c=None):
+                return True
+
+        a = Ala()
+        a.bar(1, 2, 3)
+        a.bar(a=1, b=2)
+
+        print('+'*70)
+        class Bela(Ala):
+            def bar(self, a, b, c=None):
+                return False
+        b = Bela()
+        b.bar(1, 2, 3)
+        b.bar(a=1, b=2)
+    inner()
