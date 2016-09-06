@@ -17,7 +17,7 @@ import six
 from ..exception import CommandError
 from .policy_manager import POLICY_MANAGER
 from .report import SyncReport
-from ..utils import log_call
+from ..utils import trace_call
 
 try:
     import concurrent.futures as futures
@@ -137,7 +137,7 @@ def count_files(local_folder, reporter):
     reporter.end_local()
 
 
-@log_call(logger)
+@trace_call(logger)
 def sync_folders(source_folder, dest_folder, args, now_millis, stdout, no_progress, max_workers):
     """
     Syncs two folders.  Always ensures that every file in the

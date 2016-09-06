@@ -10,9 +10,11 @@
 
 from __future__ import division, print_function
 
+from collections import OrderedDict
 from functools import wraps
 import hashlib
 import inspect
+import itertools
 import logging
 import re
 import shutil
@@ -287,18 +289,22 @@ def get_class_that_defined_method(meth):
                 return cls
         meth = meth.__func__  # fallback to __qualname__ parsing
     if inspect.isfunction(meth):
-        cls = getattr(inspect.getmodule(meth),
-                      meth.__qualname__.split('.<locals>', 1)[0].rsplit('.', 1)[0])
-        if isinstance(cls, type):
-            return cls
+        if not hasattr(meth, '__qualname__'):
+            pass  # python too old
+        else:
+            cls = getattr(inspect.getmodule(meth),
+                          meth.__qualname__.split('.<locals>', 1)[0].rsplit('.', 1)[0])
+            if isinstance(cls, type):
+                return cls
     return None
 
 
-class log_call(object):
+class trace_call(object):
     """
     A decorator which causes the function execution to be logged using a passed logger
     """
 
+    LEVEL = logging.DEBUG
     def __init__(self, logger, only=None, skip=None):
         """
             only - if not None, contains a whitelist (tuple of names) of arguments
@@ -309,55 +315,69 @@ class log_call(object):
         self.logger = logger
         self.only = only
         self.skip = skip
-        assert sum((skip is not None, only is not None)) <= 1
 
     def __call__(self, function):
         @wraps(function)
         def wrapper(*args, **kwargs):
-            print('log_call', function, args, kwargs, 'only', self.only, 'skip', self.skip)
-            print('frame info 0', inspect.getframeinfo(inspect.currentframe()))
-            print('frame info 0 detail', inspect.getargvalues(inspect.currentframe()))
-            #def wrapper(*args, **kwargs):
-            from collections import OrderedDict
-            import itertools
-            args_name = OrderedDict.fromkeys(itertools.chain(inspect.getargspec(function)[0], kwargs.keys()))
-            args_dict = OrderedDict(list(zip(args_name, args)) + list(six.iteritems(kwargs)))
-            print('args_dict', args_dict)
-            if self.logger.isEnabledFor(logging.INFO):
-                #frame = inspect.getouterframes(inspect.currentframe())[0][0]
-                ##frame = inspect.currentframe()
-                #print('frame info 01', inspect.getframeinfo(frame))
-                #print('frame info 01 detail', inspect.getargvalues(frame))
-                frame = inspect.getouterframes(inspect.currentframe())[1][0]
-                #print('frame info 1', inspect.getframeinfo(frame))
-                #print('frame info 1 detail', inspect.getargvalues(frame))
-                frame_args, _, _, frame_values = inspect.getargvalues(frame)
-                suffix = ''
-                pre_filter_len = len(frame_args)
-                #print('3 frame_args before hiding', frame_args)
-                if self.only is not None:
-                    frame_args = [arg for arg in frame_args if arg in self.only]
-                elif self.skip is not None:
-                    frame_args = [arg for arg in frame_args if arg not in self.skip]
-                #print('frame info', inspect.getframeinfo(frame))
-                #print('4 frame_args', frame_args)
-                post_filter_len = len(frame_args)
-                if post_filter_len != pre_filter_len:
-                    suffix = ' (%d arguments were hidden)' % (pre_filter_len - post_filter_len)
-                arguments = ', '.join(
-                    '%s=%s' % (k, repr(frame_values[k])) for k in frame_args
+            if self.logger.isEnabledFor(self.LEVEL):
+                args_names = OrderedDict.fromkeys(
+                    itertools.chain(
+                        inspect.getargspec(function)[0],
+                        six.iterkeys(kwargs)
+                    )
                 )
+                args_dict = OrderedDict(
+                    itertools.chain(
+                        six.moves.zip(args_names, args),
+                        six.iteritems(kwargs)
+                    )
+                )
+
+                # filter arguments
+                output_arg_names = []
+                skipped_arg_names = []
+                if self.skip is not None and self.only is not None:
+                    for arg in six.iterkeys(args_dict):
+                        if arg in self.only and arg not in self.skip:
+                            output_arg_names.append(arg)
+                        else:
+                            skipped_arg_names.append(arg)
+                elif self.only is not None:
+                    for arg in six.iterkeys(args_dict):
+                        if arg in self.only:
+                            output_arg_names.append(arg)
+                        else:
+                            skipped_arg_names.append(arg)
+                elif self.skip is not None:
+                    for arg in six.iterkeys(args_dict):
+                        if arg in self.skip:
+                            skipped_arg_names.append(arg)
+                        else:
+                            output_arg_names.append(arg)
+                else:
+                    output_arg_names = args_dict
+
+                # format output
+                suffix = ''
+                if skipped_arg_names:
+                    suffix = ' (hidden args: %s)' % (', '.join(skipped_arg_names))
+                arguments = ', '.join(
+                    '%s=%s' % (k, repr(args_dict[k])) for k in output_arg_names
+                )
+
                 function_name = function.__name__
                 klass = get_class_that_defined_method(function)
                 if klass is not None:
                     function_name = '%s.%s' % (klass.__name__, function_name)
-                self.logger.info('calling %s(%s)%s' % (function_name, arguments, suffix))
+
+                # actually log the call
+                self.logger.log(self.LEVEL, 'calling %s(%s)%s', function_name, arguments, suffix)
             return function(*args, **kwargs)
 
         return wrapper
 
 
-class limit_logging_arguments(object):
+class limit_trace_arguments(object):
     """
     A decorator which causes the function execution logging to omit some fields
     """
@@ -371,21 +391,20 @@ class limit_logging_arguments(object):
         self.only = only
         self.skip = skip
     def __call__(self, function):
-        function._log_only = self.only
-        function._log_skip = self.skip
-        print('limit_logging_arguments for', function, ', only:', self.only, 'skip:', self.skip)
+        function._trace_only = self.only
+        function._trace_skip = self.skip
         return function
 
 
-def log_nothing(function):
+def disable_trace(function):
     """
     A decorator which suppresses the function execution logging
     """
-    function._log_disable = True
+    function._trace_disable = True
     return function
 
 
-class LogPublicCallsMeta(type):
+class TracePublicCallsMeta(type):
     """
     A metaclass which logs calls to public methods of *inheriting* classes.
     Perhaps a class decorator could do the same thing, but class decorators
@@ -400,19 +419,15 @@ class LogPublicCallsMeta(type):
         # developers of standard library (`logger = logging.getLogger(__name__)`)
         # is used.
         target_logger = logging.getLogger(attrs['__module__'])
-        print('LogPublicCallsMeta called for', mcs, name, bases, attrs, kwargs)
 
         for attribute_name in attrs:
             attribute_value = attrs[attribute_name]
 
             if not callable(attribute_value):
-                print('LogPublicCallsMeta:', attribute_name, 'is a field')
                 continue  # it is a field
             if attribute_name.startswith('_'):
-                print('LogPublicCallsMeta:', attribute_name, 'is a _protected or a __private method or __this_kind__')
                 continue  # it is a _protected or a __private method or __this_kind__
-            if hasattr(attribute_value, '_log_disable'):
-                print('LogPublicCallsMeta:', '_log_disable')
+            if hasattr(attribute_value, '_trace_disable'):
                 continue
 
             # attrs['__module__'] + '.' + attribute_name is a public callable worth logging
@@ -423,45 +438,35 @@ class LogPublicCallsMeta(type):
             # XXX XXX XXX
 
             # collect the `only` and `skip` sets from mro
-            only = getattr(attribute_value, '_log_only', None)
-            skip = getattr(attribute_value, '_log_skip', None)
-            print('%s._log_only' % attrs['__module__'] + '.' + attribute_name, only)
-            print('%s._log_skip' % attrs['__module__'] + '.' + attribute_name, skip)
+            only = getattr(attribute_value, '_trace_only', None)
+            skip = getattr(attribute_value, '_trace_skip', None)
             disable = False
-            print(1, attrs['__module__'] + '.' + attribute_name, 'only =', only, 'skip =', skip)
             for base in bases:
-                print('base', base)
                 base_attribute_value = getattr(base, attribute_name, None)
                 if base_attribute_value is None:
                     continue  # the base class did not define this
-                print('the base class', base, 'did define', attribute_name, '!')
-                if hasattr(base_attribute_value, '_log_disable'):
-                    # ex. inheriting from AbstractAccount, where getters are marked
+                if hasattr(base_attribute_value, '_trace_disable'):
+                    # ex. inheriting from Abstract class, where getters are marked
                     disable = True
                     break
-                only_candidates = getattr(base_attribute_value, '_log_only', None)
+                only_candidates = getattr(base_attribute_value, '_trace_only', None)
                 if only_candidates is not None:
-                    print('only_candidates of', base_attribute_value, 'is', only_candidates)
                     if only is not None:
                         only.update(only_candidates)
                     else:
                         only = set(only_candidates)
-                else:
-                    print('only_candidates of', base_attribute_value, 'is None')
-                skip_candidates = getattr(base_attribute_value, '_log_skip', None)
+                skip_candidates = getattr(base_attribute_value, '_trace_skip', None)
                 if skip_candidates is not None:
                     if skip is not None:
                         skip.update(skip_candidates)
                     else:
                         skip = set(skip_candidates)
 
-            print(2, attrs['__module__'] + '.' + attribute_name, 'only =', only, 'skip =', skip)
             if disable:
-                print('the base class does not wish to log it at all...')
-                continue  # the base class does not wish to log it at all
+                continue  # the base class does not wish to trace it at all
 
             # create a wrapper (decorator object)
-            wrapper = log_call(
+            wrapper = trace_call(
                 target_logger,
                 only=only,
                 skip=skip,
@@ -470,7 +475,8 @@ class LogPublicCallsMeta(type):
             wrapped_value = wrapper(attribute_value)
             # and substitute the log-wrapped method for the original
             attrs[attribute_name] = wrapped_value
-        return super().__new__(mcs, name, bases, attrs)
+        return type.__new__(mcs, name, bases, attrs)
+
 
 if __name__ == '__main__':
     import logging
@@ -478,16 +484,19 @@ if __name__ == '__main__':
     logger.setLevel(logging.DEBUG)
 
     def inner():
-        @log_call(logger)
+        @trace_call(logger)
         def foo(a, b, c=None):
             return True
         foo(1, 2, 3)
         foo(a=1, b=2)
         print('+'*70)
-        @six.add_metaclass(LogPublicCallsMeta)
+        @six.add_metaclass(TracePublicCallsMeta)
         class Ala(object):
-            #@log_call(logger)
-            @limit_logging_arguments(only=EMPTY_TUPLE)
+            #@limit_trace_arguments(only=EMPTY_TUPLE)
+            @limit_trace_arguments(only=['self', 'a', 'b'], skip=['a'])
+            #@limit_trace_arguments(skip=['a'])
+            #@limit_trace_arguments(only=['a'])
+            #@disable_trace
             def bar(self, a, b, c=None):
                 return True
 

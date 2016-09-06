@@ -22,7 +22,7 @@ from .part import PartFactory
 from .progress import DoNothingProgressListener
 from .raw_api import B2RawApi
 from .session import B2Session
-from .utils import LogPublicCallsMeta, limit_logging_arguments, log_nothing
+from .utils import TracePublicCallsMeta, limit_trace_arguments, disable_trace
 
 
 try:
@@ -39,7 +39,7 @@ def url_for_api(info, api_name):
     return base + '/b2api/v1/' + api_name
 
 
-@six.add_metaclass(LogPublicCallsMeta)
+@six.add_metaclass(TracePublicCallsMeta)
 class B2Api(object):
     """
     Provides file-level access to B2 services.
@@ -92,7 +92,7 @@ class B2Api(object):
             raise Exception('thread pool already created')
         self.max_workers = max_workers
 
-    @log_nothing
+    @disable_trace
     def get_thread_pool(self):
         """
         Returns the thread pool executor to use for uploads and downloads.
@@ -112,7 +112,7 @@ class B2Api(object):
             return False
         return True
 
-    @limit_logging_arguments(only=('realm',))
+    @limit_trace_arguments(only=('self', 'realm',))
     def authorize_account(self, realm, account_id, application_key):
         try:
             old_account_id = self.account_info.get_account_id()
@@ -135,7 +135,7 @@ class B2Api(object):
             realm,
         )
 
-    @log_nothing
+    @disable_trace
     def get_account_id(self):
         return self.account_info.get_account_id()
 
@@ -162,11 +162,11 @@ class B2Api(object):
         )
         progress_listener.close()
 
-    @log_nothing
+    @disable_trace
     def get_bucket_by_id(self, bucket_id):
         return Bucket(self, bucket_id)
 
-    @log_nothing
+    @disable_trace
     def get_bucket_by_name(self, bucket_name):
         """
         Returns the bucket_id for the given bucket_name.
