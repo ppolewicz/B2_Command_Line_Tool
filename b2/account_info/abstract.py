@@ -13,7 +13,7 @@ from abc import (ABCMeta, abstractmethod)
 import six
 
 #from ..utils import TracePublicCallsMetaWithABCMeta, limit_trace_arguments, disable_trace, EMPTY_TUPLE
-from ..utils import limit_trace_arguments, disable_trace, EMPTY_TUPLE
+from ..utils import limit_trace_arguments, disable_trace
 
 
 #@six.add_metaclass(TracePublicCallsMetaWithABCMeta)

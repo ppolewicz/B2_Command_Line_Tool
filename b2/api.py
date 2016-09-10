@@ -24,7 +24,6 @@ from .raw_api import B2RawApi
 from .session import B2Session
 from .utils import TracePublicCallsMeta, limit_trace_arguments, disable_trace
 
-
 try:
     import concurrent.futures as futures
 except ImportError:
@@ -112,7 +111,7 @@ class B2Api(object):
             return False
         return True
 
-    @limit_trace_arguments(only=('self', 'realm',))
+    @limit_trace_arguments(only=('self', 'realm'))
     def authorize_account(self, realm, account_id, application_key):
         try:
             old_account_id = self.account_info.get_account_id()

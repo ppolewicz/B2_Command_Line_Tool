@@ -34,6 +34,7 @@ _shutting_down = False
 
 EMPTY_TUPLE = tuple()
 
+
 def set_shutting_down():
     global _shutting_down
     _shutting_down = True
@@ -292,8 +293,10 @@ def get_class_that_defined_method(meth):
         if not hasattr(meth, '__qualname__'):
             pass  # python too old
         else:
-            cls = getattr(inspect.getmodule(meth),
-                          meth.__qualname__.split('.<locals>', 1)[0].rsplit('.', 1)[0])
+            cls = getattr(
+                inspect.getmodule(meth),
+                meth.__qualname__.split('.<locals>', 1)[0].rsplit('.', 1)[0]
+            )
             if isinstance(cls, type):
                 return cls
     return None
@@ -305,6 +308,7 @@ class trace_call(object):
     """
 
     LEVEL = logging.DEBUG
+
     def __init__(self, logger, only=None, skip=None):
         """
             only - if not None, contains a whitelist (tuple of names) of arguments
@@ -321,16 +325,10 @@ class trace_call(object):
         def wrapper(*args, **kwargs):
             if self.logger.isEnabledFor(self.LEVEL):
                 args_names = OrderedDict.fromkeys(
-                    itertools.chain(
-                        inspect.getargspec(function)[0],
-                        six.iterkeys(kwargs)
-                    )
+                    itertools.chain(inspect.getargspec(function)[0], six.iterkeys(kwargs))
                 )
                 args_dict = OrderedDict(
-                    itertools.chain(
-                        six.moves.zip(args_names, args),
-                        six.iteritems(kwargs)
-                    )
+                    itertools.chain(six.moves.zip(args_names, args), six.iteritems(kwargs))
                 )
 
                 # filter arguments
@@ -361,9 +359,7 @@ class trace_call(object):
                 suffix = ''
                 if skipped_arg_names:
                     suffix = ' (hidden args: %s)' % (', '.join(skipped_arg_names))
-                arguments = ', '.join(
-                    '%s=%s' % (k, repr(args_dict[k])) for k in output_arg_names
-                )
+                arguments = ', '.join('%s=%s' % (k, repr(args_dict[k])) for k in output_arg_names)
 
                 function_name = function.__name__
                 klass = get_class_that_defined_method(function)
@@ -381,6 +377,7 @@ class limit_trace_arguments(object):
     """
     A decorator which causes the function execution logging to omit some fields
     """
+
     def __init__(self, only=None, skip=None):
         """
             only - if not None, contains a whitelist (tuple of names) of arguments
@@ -390,6 +387,7 @@ class limit_trace_arguments(object):
         """
         self.only = only
         self.skip = skip
+
     def __call__(self, function):
         function._trace_only = self.only
         function._trace_skip = self.skip
@@ -411,6 +409,7 @@ class TracePublicCallsMeta(type):
     are not inherited and this way we are sure that all ancestors will do the
     right thing.
     """
+
     def __new__(mcs, name, bases, attrs, **kwargs):
 
         # *magic*: an educated guess is made on how the module that the
@@ -487,13 +486,16 @@ if __name__ == '__main__':
         @trace_call(logger)
         def foo(a, b, c=None):
             return True
+
         foo(1, 2, 3)
         foo(a=1, b=2)
-        print('+'*70)
+        print('+' * 70)
+
         @six.add_metaclass(TracePublicCallsMeta)
         class Ala(object):
             #@limit_trace_arguments(only=EMPTY_TUPLE)
             @limit_trace_arguments(only=['self', 'a', 'b'], skip=['a'])
+
             #@limit_trace_arguments(skip=['a'])
             #@limit_trace_arguments(only=['a'])
             #@disable_trace
@@ -504,11 +506,14 @@ if __name__ == '__main__':
         a.bar(1, 2, 3)
         a.bar(a=1, b=2)
 
-        print('+'*70)
+        print('+' * 70)
+
         class Bela(Ala):
             def bar(self, a, b, c=None):
                 return False
+
         b = Bela()
         b.bar(1, 2, 3)
         b.bar(a=1, b=2)
+
     inner()
