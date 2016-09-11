@@ -411,7 +411,6 @@ class TracePublicCallsMeta(type):
     """
 
     def __new__(mcs, name, bases, attrs, **kwargs):
-
         # *magic*: an educated guess is made on how the module that the
         # processed class is created in would get its logger.
         # It is assumed that the popular convention recommended by the
@@ -474,7 +473,11 @@ class TracePublicCallsMeta(type):
             wrapped_value = wrapper(attribute_value)
             # and substitute the log-wrapped method for the original
             attrs[attribute_name] = wrapped_value
-        return type.__new__(mcs, name, bases, attrs)
+        return super(TracePublicCallsMeta, mcs).__new__(mcs, name, bases, attrs)
+
+from abc import ABCMeta, abstractmethod
+class AbstractTracePublicCallsMeta(ABCMeta, TracePublicCallsMeta):
+    pass
 
 
 if __name__ == '__main__':
@@ -516,4 +519,26 @@ if __name__ == '__main__':
         b.bar(1, 2, 3)
         b.bar(a=1, b=2)
 
-    inner()
+    def inner2():
+        @six.add_metaclass(AbstractTracePublicCallsMeta)
+        class Supp(object):
+            @abstractmethod
+            def a(self):
+                pass
+        class Ala(Supp):
+            #@limit_trace_arguments(only=EMPTY_TUPLE)
+            #@limit_trace_arguments(only=['self', 'a', 'b'], skip=['a'])
+            #@limit_trace_arguments(skip=['a'])
+            #@limit_trace_arguments(only=['a'])
+            #@disable_trace
+            def a(self):
+                pass
+            def bar(self, a, b, c=None):
+                return True
+
+        a = Ala()
+        a.bar(1, 2, 3)
+        a.bar(a=1, b=2)
+        print('ok')
+
+    inner2()
